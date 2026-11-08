@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Key shapes from smolkey.svg. -->
+    <group android:scaleX="1.777114" android:scaleY="1.777114"
+        android:translateX="-105.341355" android:translateY="-138.840040">
+        <path android:fillColor="#FAFAFA"
+            android:pathData="M 80.815739,98.269454 c -1.108,0 -2.000395,0.891878 -2.000395,1.999876 v 16.48737 c 0,1.108 0.892395,1.99988 2.000395,1.99988 h 6.243546 c 1.108,0 1.999878,-0.89188 1.999878,-1.99988 v -4.17494 h -0.223759 c -1.087044,0 -1.962154,-0.87511 -1.962154,-1.96216 v -4.21318 -8.136966 z M 92.30341,98.269454 v 8.136966 4.21318 c 0,1.08705 -0.87511,1.96216 -1.962154,1.96216 h -0.0739 v 4.17494 c 0,1.108 0.891878,1.99988 1.999878,1.99988 h 6.243547 c 1.108,0 1.999879,-0.89188 1.999879,-1.99988 v -16.48737 c 0,-1.107999 -0.891879,-1.999876 -1.999879,-1.999876 z" />
+    </group>
+</vector>

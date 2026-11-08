@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Common -->
+    <string name="app_name" translatable="false">Smolkey</string>
+    <string name="app_wordmark" translatable="false">smolkey</string>
+    <string name="piano">Piano</string>
+    <string name="launchpad">Launchpad</string>
+    <string name="drum">Drum</string>
+    <string name="drums">Drums</string>
+    <string name="tambourine">Tambourine</string>
+    <string name="keys">Keys</string>
+    <string name="done">Done</string>
+    <string name="close">Close</string>
+    <string name="play_sound">Play %1$s</string>
+    <string name="percentage">%1$d%%</string>
+    <string name="minus_symbol" translatable="false">−</string>
+    <string name="plus_symbol" translatable="false">+</string>
+
+    <!-- Settings and navigation -->
+    <string name="keyboard_resize_area">Keyboard resize gesture area</string>
+    <string name="instrument_mode">Instrument mode: %1$s</string>
+    <string name="launchpad_placement">Launchpad placement</string>
+    <string name="rotate_clockwise">Rotate clockwise</string>
+    <string name="open_settings">Open settings</string>
+    <string name="lower_octave">Lower octave</string>
+    <string name="raise_octave">Raise octave</string>
+    <string name="instrument_controls">%1$s controls</string>
+    <string name="output_off">Off</string>
+    <string name="output_usb">USB</string>
+    <string name="output_bluetooth">Bluetooth</string>
+    <string name="start_bluetooth_midi">Start Bluetooth MIDI</string>
+    <string name="retry">Retry</string>
+    <string name="all_notes_off">All notes off</string>
+    <string name="midi_channel">Channel %1$d</string>
+    <string name="keyboard_width">Keyboard width</string>
+    <string name="keyboard_octaves">%1$.1f oct</string>
+    <string name="keyboard_resize_hint">Pinch the open area in the top bar to resize keys</string>
+    <string name="phone_sound">Phone sound</string>
+    <string name="midi_monitoring">MIDI monitoring</string>
+    <string name="monitor_local_keys">Local keys</string>
+    <string name="monitor_midi_input">MIDI input</string>
+    <string name="room_reverb">Room reverb</string>
+    <string name="haptic_feedback">Haptic feedback</string>
+    <string name="haptic_feel">Haptic feel</string>
+    <string name="haptic_rumble">Rumble</string>
+    <string name="haptic_click">Click</string>
+    <string name="click_strength">Click strength</string>
+    <string name="rumble_power">Rumble power</string>
+    <string name="test_haptic">Test haptic</string>
+    <string name="haptics_unavailable">Phone haptics unavailable. Using Android keyboard feedback.</string>
+    <string name="dark_theme">Dark theme · dynamic colors</string>
+    <string name="follow_device_rotation">Follow device rotation</string>
+
+    <!-- MIDI connection status -->
+    <string name="midi_output_off">Output off</string>
+    <string name="bluetooth_start_hint">Tap Start Bluetooth to advertise</string>
+    <string name="midi_unavailable">MIDI is not available on this device</string>
+    <string name="usb_connect_hint">Connect USB and select MIDI in USB preferences</string>
+    <string name="usb_disconnected">USB disconnected · reconnect or tap Retry</string>
+    <string name="usb_open_failed">Could not open USB MIDI. Tap Retry.</string>
+    <string name="midi_port_open_failed">Could not open MIDI port. Tap Retry.</string>
+    <string name="usb_receive_only">USB MIDI receive only</string>
+    <string name="usb_send_only">USB MIDI send only</string>
+    <string name="usb_ready">USB ready</string>
+    <string name="usb_send_failed">USB send failed · tap Retry</string>
+    <string name="bluetooth_send_permission">Allow Nearby devices to send Bluetooth MIDI</string>
+    <string name="bluetooth_send_failed">Bluetooth send failed · restart Bluetooth</string>
+    <string name="bluetooth_waiting_for_host">Bluetooth connected · waiting for MIDI host</string>
+    <string name="bluetooth_disconnected">Bluetooth disconnected · reconnect</string>
+    <string name="bluetooth_ready">Bluetooth ready</string>
+    <string name="bluetooth_midi_paused">Bluetooth connected · MIDI paused</string>
+    <string name="bluetooth_permission">Allow Nearby devices to use Bluetooth MIDI</string>
+    <string name="bluetooth_start_permission">Allow Nearby devices, then tap Start Bluetooth</string>
+    <string name="bluetooth_unavailable">Bluetooth is not available on this device</string>
+    <string name="bluetooth_enable_hint">Turn on Bluetooth, then tap Retry</string>
+    <string name="bluetooth_advertising_unavailable">Bluetooth advertising is not available</string>
+    <string name="bluetooth_start_failed">Could not start Bluetooth MIDI</string>
+    <string name="midi_service_add_failed">Could not add MIDI service</string>
+    <string name="bluetooth_advertising">Bluetooth MIDI advertising</string>
+    <string name="bluetooth_advertising_failed">Bluetooth advertising failed (%1$d) · tap Retry</string>
+    <string name="all_notes_off_sent">All notes off sent</string>
+
+    <!-- Instruments and placement -->
+    <string name="top">Top</string>
+    <string name="bottom">Bottom</string>
+    <string name="left">Left</string>
+    <string name="right">Right</string>
+    <string name="pad_surface">Pad surface</string>
+    <string name="whole_grid_on_phone">Whole grid on this phone · %1$d×%2$d</string>
+    <string name="tile_on_phone">This phone · %1$s · %2$d×%3$d</string>
+    <string name="tile_dimensions">%1$s %2$d×%3$d</string>
+    <string name="use_full_grid">Use full grid on this phone</string>
+    <string name="flip_vertically">Flip vertically</string>
+    <string name="auto_upright">Auto upright</string>
+    <string name="hide_custom_layout">Hide custom layout</string>
+    <string name="custom_layout">Custom layout</string>
+    <string name="rotate_note_mapping">Rotate note mapping clockwise</string>
+    <string name="shared_rows_value">Shared rows %1$d</string>
+    <string name="shared_columns_value">Shared columns %1$d</string>
+    <string name="tile_rows_value">Tile rows %1$d</string>
+    <string name="tile_columns_value">Tile columns %1$d</string>
+    <string name="tile_row_value">Tile row %1$d</string>
+    <string name="tile_column_value">Tile column %1$d</string>
+    <string name="single_pad_or_kit">Single pad / kit</string>
+    <string name="shake_or_tap">SHAKE OR TAP</string>
+    <string name="tap_no_motion_sensor">TAP · MOTION SENSOR UNAVAILABLE</string>
+    <string name="motion_sensitivity">Motion sensitivity</string>
+    <string name="kick">KICK</string>
+    <string name="snare">SNARE</string>
+    <string name="closed_hi_hat">CLOSED HI HAT</string>
+    <string name="low_tom">LOW TOM</string>
+    <string name="tambourine_shake">TAMBOURINE SHAKE</string>
+    <string name="pad_description">Pad row %1$d, column %2$d, %3$s</string>
+    <string name="pad_label">%1$d:%2$d\n%3$s</string>
+    <string name="drum_pad_description">%1$s drum pad</string>
+    <string name="note_number">%1$d</string>
+    <string name="piano_range">Piano keyboard from %1$s to %2$s</string>
+    <string name="no_keys_pressed">No keys pressed</string>
+    <string name="note_list_separator">", "</string>
+    <string name="piano_key">%1$s key</string>
+
+    <!-- Credits -->
+    <string name="credit_author">brought to you by stdpi</string>
+    <string name="credit_engine">incl. with the ensemble engine:</string>
+    <string name="credit_piano_source">Akai Splendid Grand Piano · SFZ by kinwie</string>
+    <string name="credit_percussion_source">Versilian Community Sample Library</string>
+    <string name="sample_credit">• %1$s · &lt;a href=\"%2$s\"&gt;%3$s&lt;/a&gt;</string>
+</resources>
