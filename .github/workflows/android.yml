@@ -33,7 +33,7 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "platform-tools" \
-            "platforms;android-37" \
+            "platforms;android-37.0" \
             "ndk;25.2.9519653"
 
       - name: Install Rust Android toolchain
