@@ -1,21 +1,24 @@
 use std::collections::HashMap;
-use std::ptr::{self, NonNull};
+use std::fs::File;
+use std::os::fd::BorrowedFd;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 use std::time::Instant;
 
 use jni::JNIEnv;
-use jni::objects::{GlobalRef, JByteArray, JObject};
+use jni::objects::{GlobalRef, JByteArray, JIntArray, JObject};
 use jni::sys::{jboolean, jfloat, jint, jintArray, jlong};
-use ndk::asset::AssetManager;
 
-use crate::bank::{self, MAX_ENCODED_BYTES, RATE};
+use crate::bank::{self, MAX_ENCODED_CLIP_BYTES, RATE};
+use crate::fx::{EffectControls, EffectKind};
 use crate::mixer::Mixer;
 use crate::output::Output;
+use crate::streaming;
 
 struct EngineEntry {
     mixer: Arc<Mutex<Mixer>>,
-    bank_loaded: OnceLock<[i32; bank::DRUMS]>,
+    effects: Arc<EffectControls>,
+    bank_loaded: Mutex<bool>,
 }
 
 static CONTEXT: OnceLock<GlobalRef> = OnceLock::new();
@@ -38,14 +41,43 @@ fn with_mixer<T>(handle: jlong, action: impl FnOnce(&mut Mixer) -> T) -> Option<
 }
 
 fn encoded(env: &JNIEnv, bytes: JByteArray) -> Option<Vec<u8>> {
-    if env.get_array_length(&bytes).ok()? as usize > MAX_ENCODED_BYTES {
+    if env.get_array_length(&bytes).ok()? as usize > MAX_ENCODED_CLIP_BYTES {
         return None;
     }
     env.convert_byte_array(bytes).ok()
 }
 
+const API_VERSION: jint = 4;
+
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_open(
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_negotiate(
+    _: JNIEnv,
+    _: JObject,
+    minimum: jint,
+    maximum: jint,
+) -> jint {
+    if (minimum..=maximum).contains(&API_VERSION) {
+        API_VERSION
+    } else {
+        -API_VERSION
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_outputFormat(
+    _: JNIEnv,
+    _: JObject,
+    handle: jlong,
+) -> jlong {
+    ENGINES
+        .lock()
+        .ok()
+        .and_then(|engines| engines.get(&handle).map(|(_, output)| output.format()))
+        .unwrap_or(-3)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_open(
     env: JNIEnv,
     _: JObject,
     context: JObject,
@@ -69,7 +101,9 @@ pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_open(
         context
     });
 
-    let mixer = Arc::new(Mutex::new(Mixer::new()));
+    let mixer = Mixer::new();
+    let effects = mixer.effects.controls();
+    let mixer = Arc::new(Mutex::new(mixer));
     let Ok(mut engines) = ENGINES.lock() else {
         return 0;
     };
@@ -86,7 +120,8 @@ pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_open(
         (
             Arc::new(EngineEntry {
                 mixer,
-                bank_loaded: OnceLock::new(),
+                effects,
+                bank_loaded: Mutex::new(false),
             }),
             output,
         ),
@@ -95,74 +130,132 @@ pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_open(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_loadBank(
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_inspectBank(
     env: JNIEnv,
     _: JObject,
-    handle: jlong,
-    assets: JObject,
+    fd: jint,
+    offset: jlong,
+    length: jlong,
 ) -> jintArray {
-    let Some(engine) = engine(handle) else {
-        return ptr::null_mut();
-    };
-    // The JNI argument keeps the Java AssetManager alive until the asset is closed.
-    let Some(manager) = NonNull::new(unsafe {
-        ndk_sys::AAssetManager_fromJava(env.get_raw().cast(), assets.as_raw().cast())
-    }) else {
-        return ptr::null_mut();
-    };
-    let manager = unsafe { AssetManager::from_ptr(manager) };
-    let Some(asset) = manager.open(c"instruments.smb") else {
-        log::warn!("Could not open the bundled sampler bank");
-        return ptr::null_mut();
-    };
-    if asset.length() > MAX_ENCODED_BYTES {
-        log::warn!("Bundled sampler bank exceeds the encoded size limit");
-        return ptr::null_mut();
-    }
-    let drums = engine.bank_loaded.get_or_init(|| {
-        let start = Instant::now();
-        let mut zones = Vec::new();
-        let mut decoded = 0;
-        let mut loaded = 0;
-        let Some(playback) = bank::decode_bank(asset, |clip| {
-            decoded += 1;
-            let result = match engine.mixer.lock() {
-                Ok(mut mixer) => mixer.load(clip.sample),
-                Err(_) => return,
-            };
-            if let Ok(stem) = result {
-                zones.extend(clip.zones.into_iter().map(|zone| (zone, stem)));
-                loaded += 1;
-            }
-        }) else {
-            log::warn!("Invalid sampler bank header");
-            return [-1; bank::DRUMS];
-        };
-        let drums = match engine.mixer.lock() {
-            Ok(mut mixer) => mixer.install(playback, zones),
-            Err(_) => return [-1; bank::DRUMS],
-        };
-        log::info!(
-            "Loaded {} bank clips in {} ms",
-            loaded,
-            start.elapsed().as_millis()
-        );
-        if decoded == 0 {
-            log::warn!("No valid clips in the sampler bank");
-        }
-        drums
-    });
-    let Ok(array) = env.new_int_array(drums.len() as jint) else {
-        return ptr::null_mut();
-    };
-    if env.set_int_array_region(&array, 0, drums).is_err() {
-        return ptr::null_mut();
-    }
-    array.into_raw()
+    let result = (|| {
+        let (_, index) = read_bank_source(fd, offset, length)?;
+        program_array(&env, &bank_metadata(&index))
+    })();
+    result.unwrap_or(std::ptr::null_mut())
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_loadStem(
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_loadBank(
+    env: JNIEnv,
+    _: JObject,
+    handle: jlong,
+    fd: jint,
+    offset: jlong,
+    length: jlong,
+    required: JIntArray,
+) -> jintArray {
+    let result = (|| {
+        let required = required_programs(&env, &required)?;
+        let (file, index) = read_bank_source(fd, offset, length)?;
+        install_bank(&env, handle, file, index, required)
+    })();
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+fn read_bank_source(fd: jint, offset: jlong, length: jlong) -> Option<(Arc<File>, bank::Bank)> {
+    if fd < 0 {
+        return None;
+    }
+    // The Kotlin bank manager keeps the descriptor open for this entire JNI call.
+    // The decoder owns a duplicate and uses positional reads.
+    let file = Arc::new(File::from(
+        unsafe { BorrowedFd::borrow_raw(fd) }
+            .try_clone_to_owned()
+            .ok()?,
+    ));
+    let metadata = file.metadata().ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    let offset = u64::try_from(offset).ok()?;
+    let available = metadata.len().checked_sub(offset)?;
+    let length = if length == -1 {
+        available
+    } else {
+        u64::try_from(length).ok()?
+    };
+    if length > available {
+        return None;
+    }
+    let index = bank::Bank::read_file(Arc::clone(&file), offset, length)?;
+    Some((file, index))
+}
+
+fn bank_metadata(index: &bank::Bank) -> Vec<jint> {
+    let mut values = vec![index.clips.len() as jint];
+    values.extend(
+        index
+            .programs
+            .iter()
+            .filter(|(_, program)| !program.zones.is_empty())
+            .map(|(&id, _)| jint::from(id)),
+    );
+    values[1..].sort_unstable();
+    values
+}
+
+fn required_programs(env: &JNIEnv, array: &JIntArray) -> Option<Vec<jint>> {
+    let mut values = vec![0; usize::try_from(env.get_array_length(array).ok()?).ok()?];
+    env.get_int_array_region(array, 0, &mut values).ok()?;
+    Some(values)
+}
+
+fn program_array(env: &JNIEnv, values: &[jint]) -> Option<jintArray> {
+    let array = env.new_int_array(values.len() as jint).ok()?;
+    env.set_int_array_region(&array, 0, values).ok()?;
+    Some(array.into_raw())
+}
+
+fn install_bank(
+    env: &JNIEnv,
+    handle: jlong,
+    file: Arc<File>,
+    index: bank::Bank,
+    required: Vec<jint>,
+) -> Option<jintArray> {
+    let engine = engine(handle)?;
+    let mut loaded = engine.bank_loaded.lock().ok()?;
+    if *loaded {
+        return None;
+    }
+    let start = Instant::now();
+    let metadata = bank_metadata(&index);
+    let programs = &metadata[1..];
+    let mut missing = vec![-2];
+    missing.extend(
+        required
+            .into_iter()
+            .filter(|id| programs.binary_search(id).is_err()),
+    );
+    if missing.len() > 1 {
+        return program_array(env, &missing);
+    }
+    let result = program_array(env, &metadata)?;
+    let count = index.clips.len();
+    streaming::install(&engine.mixer, file, index)
+        .map_err(|error| log::warn!("Could not start bank decoder: {error}"))
+        .ok()?;
+    *loaded = true;
+    log::info!(
+        "Indexed {count} clips across {} programs in {} ms",
+        programs.len(),
+        start.elapsed().as_millis()
+    );
+    Some(result)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_loadClip(
     env: JNIEnv,
     _: JObject,
     handle: jlong,
@@ -185,21 +278,21 @@ pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_loadStem(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_fire(
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_fire(
     _: JNIEnv,
     _: JObject,
     handle: jlong,
-    stem: jint,
+    clip: jint,
     gain: jfloat,
     rate: jfloat,
     looping: jboolean,
 ) -> jlong {
-    if stem < 0 || !gain.is_finite() || !rate.is_finite() {
+    if clip < 0 || !gain.is_finite() || !rate.is_finite() {
         return 0;
     }
     with_mixer(handle, |mixer| {
         mixer.fire(
-            stem as usize,
+            clip as usize,
             gain.clamp(0.0, 2.0),
             f64::from(rate.clamp(0.25, 4.0)),
             looping != 0,
@@ -209,42 +302,105 @@ pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_fire(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_percussion(
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_pad(
     _: JNIEnv,
     _: JObject,
     handle: jlong,
-    stem: jint,
+    program: jint,
+    note: jint,
     velocity: jint,
     looping: jboolean,
     current: jlong,
 ) -> jlong {
-    if stem < 0 || !(0..=127).contains(&velocity) {
+    let Ok(program) = u16::try_from(program) else {
+        return 0;
+    };
+    if !(0..=127).contains(&note) || !(0..=127).contains(&velocity) {
         return 0;
     }
     with_mixer(handle, |mixer| {
-        mixer.percussion(stem as usize, velocity as u8, looping != 0, current)
+        mixer.pad(program, note as u8, velocity as u8, looping != 0, current)
     })
     .unwrap_or(0)
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_note(
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_note(
     _: JNIEnv,
     _: JObject,
     handle: jlong,
+    program: jint,
     channel: jint,
     note: jint,
     velocity: jint,
 ) {
+    let Ok(program) = u16::try_from(program) else {
+        return;
+    };
     if (1..=16).contains(&channel) && (0..=127).contains(&note) && (0..=127).contains(&velocity) {
         with_mixer(handle, |mixer| {
-            mixer.note(((channel - 1) * 128 + note) as usize, velocity as u8)
+            mixer.note(
+                program,
+                ((channel - 1) * 128 + note) as usize,
+                velocity as u8,
+            )
         });
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_gain(
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_setPedal(
+    _: JNIEnv,
+    _: JObject,
+    handle: jlong,
+    channel: jint,
+    value: jint,
+) {
+    if (1..=16).contains(&channel) && (0..=127).contains(&value) {
+        with_mixer(handle, |mixer| {
+            mixer.set_pedal((channel - 1) as usize, value as u8)
+        });
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_channelMix(
+    _: JNIEnv,
+    _: JObject,
+    handle: jlong,
+    channel: jint,
+    gain: jfloat,
+    pan: jfloat,
+    semitones: jfloat,
+) {
+    if (1..=16).contains(&channel) && gain.is_finite() && pan.is_finite() && semitones.is_finite() {
+        with_mixer(handle, |mixer| {
+            mixer.set_channel_mix(
+                (channel - 1) as usize,
+                gain.clamp(0.0, 1.0),
+                pan.clamp(-1.0, 1.0),
+                semitones.clamp(-24.0, 24.0),
+            )
+        });
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_silenceChannel(
+    _: JNIEnv,
+    _: JObject,
+    handle: jlong,
+    channel: jint,
+) {
+    if (1..=16).contains(&channel) {
+        with_mixer(handle, |mixer| {
+            mixer.silence_channel((channel - 1) as usize)
+        });
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_gain(
     _: JNIEnv,
     _: JObject,
     handle: jlong,
@@ -257,7 +413,7 @@ pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_gain(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_stop(
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_stop(
     _: JNIEnv,
     _: JObject,
     handle: jlong,
@@ -267,7 +423,7 @@ pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_stop(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_release(
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_release(
     _: JNIEnv,
     _: JObject,
     handle: jlong,
@@ -276,17 +432,38 @@ pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_release(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_setReverb(
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_loadFx(
     _: JNIEnv,
     _: JObject,
     handle: jlong,
-    percent: jint,
-) {
-    with_mixer(handle, |mixer| mixer.set_reverb(percent));
+    kind: jint,
+) -> jint {
+    let Some(kind) = EffectKind::from_id(kind) else {
+        return -1;
+    };
+    with_mixer(handle, |mixer| mixer.effects.load(kind))
+        .flatten()
+        .map_or(-1, |slot| slot as jint)
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_setActive(
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_setFxFloat(
+    _: JNIEnv,
+    _: JObject,
+    handle: jlong,
+    slot: jint,
+    parameter: jint,
+    value: jfloat,
+) -> jboolean {
+    let (Ok(slot), Ok(parameter)) = (usize::try_from(slot), usize::try_from(parameter)) else {
+        return 0;
+    };
+    engine(handle).is_some_and(|engine| engine.effects.set_float(slot, parameter, value))
+        as jboolean
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_setActive(
     _: JNIEnv,
     _: JObject,
     handle: jlong,
@@ -304,7 +481,7 @@ pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_setActive(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_work_stdpi_smolkey_EnsembleBindings_close(
+pub extern "system" fn Java_work_stdpi_ensemble_EnsembleBindings_close(
     _: JNIEnv,
     _: JObject,
     handle: jlong,

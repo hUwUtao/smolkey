@@ -176,7 +176,7 @@ internal class MidiOutput(
                 pendingHitPulses[key] = release
                 main.postDelayed(release, 25)
             }
-            is InstrumentEvent.Roll -> Unit
+            is InstrumentEvent.Roll, is InstrumentEvent.Pedal -> Unit
         }
     }
 

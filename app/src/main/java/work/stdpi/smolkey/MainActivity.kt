@@ -1,5 +1,7 @@
 package work.stdpi.smolkey
 
+import android.content.SharedPreferences
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -21,6 +23,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val settings = getSharedPreferences("piano", 0)
+        // Request the saved orientation before Compose lays out the instrument.
+        val orientation = settings.instrumentOrientation()
+        if (requestedOrientation != orientation) requestedOrientation = orientation
         midiStatus.value = getString(R.string.usb_connect_hint)
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
         if (android.os.Build.VERSION.SDK_INT >= 28) {
@@ -35,7 +41,6 @@ class MainActivity : ComponentActivity() {
             receive = { eventBus.receive(it) },
         )
         audio = InstrumentAudio(this)
-        val settings = getSharedPreferences("piano", 0)
         val monitorInput = settings.getBoolean("monitorHostReturn", false)
         eventBus = MidiEventBus(
             output,
@@ -85,3 +90,9 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 }
+
+internal fun SharedPreferences.instrumentOrientation(): Int = getInt(
+    "orientationMode",
+    if (getBoolean("landscapeLocked", false)) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+    else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
+)

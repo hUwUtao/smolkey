@@ -5,18 +5,19 @@ import androidx.annotation.StringRes
 /** Available destinations for outgoing MIDI events. */
 internal enum class Output { OFF, USB, BLUETOOTH }
 internal enum class LaunchpadSurfaceKind { KEY, DRUM }
-internal enum class PercussionSound(val note: Int, val resourceName: String, @StringRes val labelRes: Int) {
-    KICK(36, "kick", R.string.kick),
-    SNARE(38, "snare", R.string.snare),
-    CLOSED_HI_HAT(42, "hi_hat", R.string.closed_hi_hat),
-    LOW_TOM(45, "low_tom", R.string.low_tom),
-    TAMBOURINE(54, "tambourine", R.string.tambourine),
-    TAMBOURINE_SHAKE(54, "tambourine_shake", R.string.tambourine_shake),
+internal enum class PercussionSound(val note: Int, @StringRes val labelRes: Int, val bankKey: Int = note) {
+    KICK(36, R.string.kick),
+    SNARE(38, R.string.snare),
+    CLOSED_HI_HAT(42, R.string.closed_hi_hat),
+    LOW_TOM(45, R.string.low_tom),
+    TAMBOURINE(54, R.string.tambourine),
+    TAMBOURINE_SHAKE(54, R.string.tambourine_shake, bankKey = 127),
 }
 
 /** Semantic performance events emitted by touch and motion producers. */
 internal sealed interface InstrumentEvent {
     data class Note(val note: Int, val down: Boolean, val channel: Int, val velocity: Int = 96) : InstrumentEvent, MidiReadback
+    data class Pedal(val channel: Int, val value: Int) : InstrumentEvent, MidiReadback
     data class Hit(val sound: PercussionSound, val channel: Int, val velocity: Int) : InstrumentEvent
     data class Roll(val velocity: Int?) : InstrumentEvent
 }
@@ -58,12 +59,14 @@ internal class MidiEventBus(
     val visibleNotes = keys.visibleNotes
     private val localVoices = mutableSetOf<MidiKey>()
     private val hostVoices = mutableSetOf<MidiKey>()
+    private val hostPedal = IntArray(16)
 
     var soundEnabled = soundEnabled
         set(value) {
             if (!value) {
                 releaseKeys(localVoices, hostVoices)
                 releaseKeys(hostVoices, localVoices)
+                resetPedals()
             }
             field = value
         }
@@ -76,7 +79,10 @@ internal class MidiEventBus(
 
     var monitorInput = monitorInput
         set(value) {
-            if (!value) releaseKeys(hostVoices, localVoices)
+            if (!value) {
+                releaseKeys(hostVoices, localVoices)
+                resetPedals()
+            }
             field = value
         }
 
@@ -96,14 +102,28 @@ internal class MidiEventBus(
                 val held = keys.note(MidiNoteSource.HOST, event)
                 if (monitorInput && (event.down || !held)) play(event, hostVoices, localVoices)
             }
+            is InstrumentEvent.Pedal -> if (monitorInput && soundEnabled) {
+                hostPedal[event.channel - 1] = event.value
+                sampler.consume(event)
+            }
             is MidiReadback.ReleaseChannel -> clearHost(event.channel)
-            MidiReadback.Disconnected -> clearHost()
+            MidiReadback.Disconnected -> {
+                clearHost()
+                resetPedals()
+            }
         }
     }
 
     fun clearHost(channel: Int? = null) {
         keys.clearHost(channel)
         releaseKeys(hostVoices, localVoices, channel)
+    }
+
+    private fun resetPedals() {
+        hostPedal.forEachIndexed { channel, value ->
+            if (value != 0) sampler.consume(InstrumentEvent.Pedal(channel + 1, 0))
+        }
+        hostPedal.fill(0)
     }
 
     private fun play(event: InstrumentEvent.Note, voices: MutableSet<MidiKey>, other: Set<MidiKey>) {
@@ -140,7 +160,7 @@ internal interface MidiPort : InstrumentEventConsumer {
         when (event) {
             is InstrumentEvent.Note -> note(event.note, event.down, event.channel, event.velocity)
             is InstrumentEvent.Hit -> note(event.sound.note, true, event.channel, event.velocity)
-            is InstrumentEvent.Roll -> Unit
+            is InstrumentEvent.Roll, is InstrumentEvent.Pedal -> Unit
         }
     }
 }
@@ -149,6 +169,7 @@ internal interface MidiPort : InstrumentEventConsumer {
 internal interface AudioPort : InstrumentEventConsumer {
     fun note(note: Int, down: Boolean, channel: Int = 1, velocity: Int = 96)
     fun hit(sound: PercussionSound, velocity: Int)
+    fun pedal(channel: Int, value: Int) = Unit
     fun roll(velocity: Int?)
     fun release()
     fun close()
@@ -158,6 +179,7 @@ internal interface AudioPort : InstrumentEventConsumer {
             is InstrumentEvent.Note -> note(event.note, event.down, event.channel, event.velocity)
             is InstrumentEvent.Hit -> hit(event.sound, event.velocity)
             is InstrumentEvent.Roll -> roll(event.velocity)
+            is InstrumentEvent.Pedal -> pedal(event.channel, event.value)
         }
     }
 }

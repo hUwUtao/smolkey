@@ -3,46 +3,64 @@
 
 #[path = "../src/bank.rs"]
 mod bank;
-#[path = "../src/limiter.rs"]
-mod limiter;
+#[path = "../src/fx/mod.rs"]
+mod fx;
 #[path = "../src/mixer.rs"]
 mod mixer;
-#[path = "../src/processor.rs"]
-mod processor;
-#[path = "../src/reverb.rs"]
-mod reverb;
+#[path = "../src/streaming.rs"]
+mod streaming;
 
+use std::fs::File;
 use std::hint::black_box;
+use std::sync::Arc;
 
 use criterion::{
     BatchSize, BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
     measurement::WallTime,
 };
 
-use bank::{RATE, decode_bank};
-use limiter::Limiter;
+use bank::{Bank, RATE, Sample, decode_stream};
+use fx::{EffectChain, EffectKind};
 use mixer::Mixer;
-use processor::Processor;
-use reverb::Room;
 
-const BANK: &[u8] = include_bytes!("../../app/src/main/assets/instruments.smb");
+const BANK: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../app/src/main/assets/instruments.smb"
+);
 const FRAMES: usize = 128;
 const CHANNELS: usize = 2;
 
 fn effects(c: &mut Criterion) {
     let mut group = c.benchmark_group("effects_128_frames");
     group.throughput(Throughput::Elements(FRAMES as u64));
-    bench_effect(&mut group, "reverb_35", Room::new(RATE, 0.35), 0.5);
-    bench_effect(&mut group, "limiter_below_ceiling", Limiter::new(RATE), 0.5);
-    bench_effect(&mut group, "limiter_engaged", Limiter::new(RATE), 1.25);
+    bench_effect(&mut group, "reverb_35", EffectKind::REVERB, 0.35, 0.5);
+    bench_effect(
+        &mut group,
+        "limiter_below_ceiling",
+        EffectKind::LIMITER,
+        80.0,
+        0.5,
+    );
+    bench_effect(
+        &mut group,
+        "limiter_engaged",
+        EffectKind::LIMITER,
+        80.0,
+        1.25,
+    );
 }
 
 fn bench_effect(
     group: &mut BenchmarkGroup<'_, WallTime>,
     name: &str,
-    mut effect: impl Processor,
+    kind: EffectKind,
+    parameter: f32,
     peak: f32,
 ) {
+    let mut effect = EffectChain::new();
+    let slot = effect.load(kind).unwrap();
+    assert!(effect.controls().set_float(slot, 0, parameter));
+    effect.prepare(RATE, CHANNELS);
     let input: [[f32; 2]; FRAMES] = std::array::from_fn(|frame| {
         let phase = frame as f32 * std::f32::consts::TAU / FRAMES as f32;
         [peak * phase.sin(), peak * 0.8 * (phase * 3.0).cos()]
@@ -62,20 +80,44 @@ fn bench_effect(
 
 fn render(c: &mut Criterion) {
     let mut mixer = Mixer::new();
-    let mut stems = Vec::new();
-    decode_bank(BANK, |clip| {
-        if clip.zones.iter().any(|zone| zone.low < 128) {
-            stems.push(mixer.load(clip.sample).ok().expect("piano stem fits"));
-        }
-    })
-    .expect("bundled instrument bank");
-    assert!(!stems.is_empty(), "bundled bank has no piano recordings");
+    let room = mixer.effects.load(EffectKind::REVERB).unwrap();
+    mixer.effects.load(EffectKind::MONO_FOLD).unwrap();
+    mixer.effects.load(EffectKind::LIMITER).unwrap();
+    let effects = mixer.effects.controls();
+    let input = Arc::new(File::open(BANK).expect("bundled bank file"));
+    let length = input.metadata().unwrap().len();
+    let index = Bank::read_file(Arc::clone(&input), 0, length).expect("bundled bank index");
+    let zones = &index.programs[&0].zones;
+    let stems: Vec<_> = (0..16)
+        .map(|i| {
+            let clip = index.clips[zones[i * zones.len() / 16].clip];
+            let mut pcm = Vec::with_capacity(clip.frames * clip.channels);
+            decode_stream(
+                clip.stream(Arc::clone(&input)),
+                clip.rate,
+                clip.frames,
+                |_, chunk| {
+                    pcm.extend_from_slice(chunk);
+                    Some(())
+                },
+            )
+            .expect("bundled clip");
+            mixer
+                .load(Sample {
+                    pcm,
+                    channels: clip.channels,
+                    rate: clip.rate,
+                })
+                .ok()
+                .expect("benchmark clip fits")
+        })
+        .collect();
 
     let mut group = c.benchmark_group("render_128_frames");
     group.throughput(Throughput::Elements(FRAMES as u64));
     for (voices, reverb) in [(0, 0), (16, 0), (16, 35), (128, 0)] {
         mixer.clear();
-        mixer.set_reverb(reverb);
+        assert!(effects.set_float(room, 0, reverb as f32 / 100.0));
         mixer.prepare_output(RATE, CHANNELS);
 
         // Spread voices across the bank and loop them to keep polyphony fixed.

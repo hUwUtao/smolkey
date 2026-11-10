@@ -4,4 +4,4 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = "Smolkey"
-include(":app")
+include(":app", ":ensemble")

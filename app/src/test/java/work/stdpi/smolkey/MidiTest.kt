@@ -72,5 +72,16 @@ class MidiTest {
         ), events)
     }
 
+    @Test fun preservesHalfPedalValuesAndControllerReset() {
+        val events = mutableListOf<MidiReadback>()
+        val decoder = MidiReadbackDecoder(events::add)
+        decoder.usb(bytes(0xB2, 64, 43, 64, 105, 121, 0))
+        assertEquals(listOf(
+            InstrumentEvent.Pedal(3, 43),
+            InstrumentEvent.Pedal(3, 105),
+            InstrumentEvent.Pedal(3, 0),
+        ), events)
+    }
+
     private fun bytes(vararg values: Int) = ByteArray(values.size) { values[it].toByte() }
 }

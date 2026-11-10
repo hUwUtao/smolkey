@@ -39,7 +39,7 @@ You can use multiple (most at 2 or more) phones or tab to build a matrix of butt
 
 ## Fine grained sound
 
-`ensemble`, the sound engine provides a crisp piano sampling at a fraction of latency when hook up to actual MIDI.
+Ensemble plays sampled instruments from programs and key/velocity zones. It reads the bank index at startup and streams clips as they are triggered. See [Ensemble sample banks](docs/ensemble-bank.md) to compile a bank.
 
 ## Two way MIDI
 

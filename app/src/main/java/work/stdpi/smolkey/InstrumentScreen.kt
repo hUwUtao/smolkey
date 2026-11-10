@@ -141,9 +141,7 @@ internal fun InstrumentScreen(
     var channel by rememberSaveable { mutableIntStateOf(prefs.getInt("channel", 1).coerceIn(1, 16)) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showCredits by rememberSaveable { mutableStateOf(false) }
-    var orientationMode by rememberSaveable {
-        mutableIntStateOf(prefs.getInt("orientationMode", if (prefs.getBoolean("landscapeLocked", false)) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED))
-    }
+    var orientationMode by rememberSaveable { mutableIntStateOf(prefs.instrumentOrientation()) }
     val visibleNotes by eventBus.visibleNotes.collectAsState()
     val currentHaptics by rememberUpdatedState(haptics)
     val currentHapticStyle by rememberUpdatedState(if (hapticStyle == "CLICK") HapticStyle.CLICK else HapticStyle.RUMBLE)

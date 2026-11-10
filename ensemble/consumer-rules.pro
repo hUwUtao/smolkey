@@ -1,0 +1,1 @@
+-keep class work.stdpi.ensemble.EnsembleBindings { *; }

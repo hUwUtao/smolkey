@@ -1,0 +1,6 @@
+[workspace]
+members = ["native"]
+resolver = "3"
+
+[profile.release]
+strip = "debuginfo"

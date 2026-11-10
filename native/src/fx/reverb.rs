@@ -1,15 +1,16 @@
-use crate::processor::Processor;
+use super::{FloatParameter, Parameters, Processor};
+
+const AMOUNT: usize = 0;
 
 // Keep a strong wet return at full send, including on a mono speaker.
 const WET_AT_FULL_SEND: f32 = 0.60;
 
 /// Four damped delay lines with an orthogonal Householder feedback mix.
-pub struct Room {
+pub(super) struct Room {
     delays: [Delay; 4],
     damping: f32,
     step: f32,
     wet: f32,
-    target: f32,
 }
 
 struct Delay {
@@ -19,7 +20,13 @@ struct Delay {
 }
 
 impl Room {
-    pub fn new(rate: u32, amount: f32) -> Self {
+    pub(super) const PARAMETERS: &'static [FloatParameter] = &[FloatParameter {
+        default: 0.0,
+        min: 0.0,
+        max: 1.0,
+    }];
+
+    pub(super) fn new(rate: u32) -> Self {
         let rate = rate as f32;
         Self {
             delays: [19.9, 29.7, 37.1, 43.7].map(|ms| Delay {
@@ -30,12 +37,7 @@ impl Room {
             damping: 1.0 - (-std::f32::consts::TAU * 2700.0 / rate).exp(),
             step: 1.0 / (rate * 0.020),
             wet: 0.0,
-            target: amount * WET_AT_FULL_SEND,
         }
-    }
-
-    pub fn set_amount(&mut self, amount: f32) {
-        self.target = amount * WET_AT_FULL_SEND;
     }
 }
 
@@ -49,8 +51,8 @@ impl Processor for Room {
         self.wet = 0.0;
     }
 
-    fn process(&mut self, frames: &mut [[f32; 2]]) {
-        let target = self.target;
+    fn process(&mut self, frames: &mut [[f32; 2]], parameters: &Parameters) {
+        let target = parameters.float(AMOUNT) * WET_AT_FULL_SEND;
         if target == 0.0 && self.wet == 0.0 {
             return;
         }
