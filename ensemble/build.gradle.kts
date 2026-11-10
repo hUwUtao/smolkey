@@ -40,7 +40,7 @@ abstract class BuildEnsemble @Inject constructor(private val execOperations: Exe
             environment("ANDROID_NDK_HOME", ndkDirectory.get().asFile)
             environment("CARGO_TARGET_DIR", cargoTarget.get().asFile)
             commandLine(
-                "cargo", "ndk", "-P", "31",
+                "cargo", "ndk", "--platform", "31",
                 "-t", "arm64-v8a", "-t", "armeabi-v7a", "-t", "x86_64", "-t", "x86",
                 "-o", jniLibs.get().asFile.absolutePath,
                 "build", "--release", "--locked",
